@@ -6,8 +6,8 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import ru.viktorinavopros.quiz.audio.AppSounds
-import ru.viktorinavopros.quiz.ui.ViktorinaApp
-import ru.viktorinavopros.quiz.ui.theme.ViktorinaTheme
+import ru.viktorinavopros.quiz.ui.QuizMasterApp
+import ru.viktorinavopros.quiz.ui.theme.QuizMasterTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -18,8 +18,8 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
         )
         setContent {
-            ViktorinaTheme {
-                ViktorinaApp()
+            QuizMasterTheme {
+                QuizMasterApp()
             }
         }
     }

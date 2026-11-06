@@ -20,11 +20,10 @@ data class BoardCell(
     val topic: Topic,
     val value: Int,
     val question: QuizQuestion,
-    val options: List<String>,
-    val correctIndex: Int,
     val answered: Boolean = false,
     val answeredBy: Int? = null,
-    val selectedIndex: Int? = null,
+    val answerText: String? = null,
+    val timedOut: Boolean = false,
     val isCorrect: Boolean? = null,
 )
 
@@ -44,15 +43,12 @@ data class AnsweredQuestion(
     val selectedAnswer: String?,
     val correctAnswer: String,
     val isCorrect: Boolean,
-    val options: List<String> = emptyList(),
-    val selectedIndex: Int? = null,
-    val correctIndex: Int = 0,
+    val timedOut: Boolean = false,
     /** Полный ответ с сайта: обычно содержит и ответ, и пояснение. */
     val explanation: String = "",
     val sourceUrl: String = "",
 ) {
     val delta: Int get() = if (isCorrect) value else -value
-    val correctOption: String get() = options.getOrNull(correctIndex) ?: correctAnswer
 }
 
 data class GameState(
@@ -61,6 +57,7 @@ data class GameState(
     val currentPlayerIndex: Int = 0,
     val activeCell: BoardCell? = null,
     val history: List<AnsweredQuestion> = emptyList(),
+    val timerSeconds: Int = 0,
     val finished: Boolean = false,
 ) {
     val currentPlayer: Player
@@ -84,13 +81,30 @@ data class GameState(
         return copy(activeCell = cell)
     }
 
-    fun answer(selectedIndex: Int): GameState {
+    fun answer(text: String): GameState {
         val cell = activeCell ?: return this
         if (cell.answered) return this
-        if (selectedIndex !in cell.options.indices) return this
+        val clean = text.trim()
+        if (clean.isEmpty()) return this
 
+        val isCorrect = AnswerChecker.isCorrect(clean, cell.question.answer)
+        return recordAnswer(cell, clean, isCorrect, timedOut = false)
+    }
+
+    /** Игрок не успел ответить: вопрос закрывается как ошибочный. */
+    fun timeout(): GameState {
+        val cell = activeCell ?: return this
+        if (cell.answered) return this
+        return recordAnswer(cell, answer = null, isCorrect = false, timedOut = true)
+    }
+
+    private fun recordAnswer(
+        cell: BoardCell,
+        answer: String?,
+        isCorrect: Boolean,
+        timedOut: Boolean,
+    ): GameState {
         val player = currentPlayer
-        val isCorrect = selectedIndex == cell.correctIndex
         val delta = if (isCorrect) cell.value else -cell.value
         val updatedPlayer = player.copy(
             score = player.score + delta,
@@ -100,7 +114,8 @@ data class GameState(
         val updatedCell = cell.copy(
             answered = true,
             answeredBy = player.id,
-            selectedIndex = selectedIndex,
+            answerText = answer,
+            timedOut = timedOut,
             isCorrect = isCorrect,
         )
         val updatedCategories = categories.map { category ->
@@ -118,12 +133,10 @@ data class GameState(
             playerId = player.id,
             playerName = player.name,
             playerColor = player.color,
-            selectedAnswer = cell.options.getOrNull(selectedIndex),
-            correctAnswer = cell.question.answer,
+            selectedAnswer = answer,
+            correctAnswer = GameFactory.shortAnswer(cell.question.answer),
             isCorrect = isCorrect,
-            options = cell.options,
-            selectedIndex = selectedIndex,
-            correctIndex = cell.correctIndex,
+            timedOut = timedOut,
             explanation = cell.question.explanation
                 .ifBlank { cell.question.answer },
             sourceUrl = cell.question.sourceUrl,

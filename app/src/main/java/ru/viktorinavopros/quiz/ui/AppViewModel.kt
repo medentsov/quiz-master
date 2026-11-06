@@ -1,6 +1,7 @@
 package ru.viktorinavopros.quiz.ui
 
 import android.app.Application
+import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,13 +38,23 @@ data class AppUiState(
     val playerNames: List<String> = List(1) { "" },
     val selectedTopics: List<Topic> = emptyList(),
     val game: GameState? = null,
+    val timerSeconds: Int = 0,
     val lastUpdated: Long? = null,
 )
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
 
+    private companion object {
+        const val SETTINGS = "game_settings"
+        const val KEY_TIMER_SECONDS = "timer_seconds"
+        val TIMER_OPTIONS = setOf(0, 30, 60)
+    }
+
     private val repository = SiteRepository(application)
-    private val _state = MutableStateFlow(AppUiState())
+    private val settings = application.getSharedPreferences(SETTINGS, Context.MODE_PRIVATE)
+    private val _state = MutableStateFlow(
+        AppUiState(timerSeconds = loadTimerSeconds()),
+    )
     val state: StateFlow<AppUiState> = _state.asStateFlow()
 
     init {
@@ -137,6 +148,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun setTimerSeconds(seconds: Int) {
+        val safeSeconds = seconds.takeIf { it in TIMER_OPTIONS } ?: 0
+        settings.edit().putInt(KEY_TIMER_SECONDS, safeSeconds).apply()
+        _state.update { it.copy(timerSeconds = safeSeconds) }
+    }
+
     fun toggleTopic(topic: Topic) {
         _state.update { current ->
             val selected = current.selectedTopics
@@ -175,7 +192,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         val players = GameFactory.createPlayers(current.playerCount, current.playerNames)
-        val game = GameFactory.createGame(data, current.selectedTopics, players)
+        val game = GameFactory.createGame(
+            data = data,
+            topics = current.selectedTopics,
+            players = players,
+            timerSeconds = current.timerSeconds,
+        )
         _state.update {
             it.copy(
                 screen = Screen.Board,
@@ -190,9 +212,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(game = game.openCell(cellId)) }
     }
 
-    fun answer(selectedIndex: Int) {
+    fun answer(text: String) {
         val game = _state.value.game ?: return
-        _state.update { it.copy(game = game.answer(selectedIndex)) }
+        _state.update { it.copy(game = game.answer(text)) }
+    }
+
+    fun timeout() {
+        val game = _state.value.game ?: return
+        _state.update { it.copy(game = game.timeout()) }
     }
 
     fun continueGame() {
@@ -224,7 +251,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             count = game.players.size,
             names = game.players.map { it.name },
         )
-        val newGame = GameFactory.createGame(data, topics, players)
+        val newGame = GameFactory.createGame(
+            data = data,
+            topics = topics,
+            players = players,
+            timerSeconds = game.timerSeconds,
+        )
         _state.update {
             it.copy(
                 game = newGame,
@@ -254,6 +286,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             else -> Unit
         }
     }
+
+    private fun loadTimerSeconds(): Int =
+        settings.getInt(KEY_TIMER_SECONDS, 0).takeIf { it in TIMER_OPTIONS } ?: 0
 
     private fun readyData(): QuizData? = (_state.value.dataState as? DataState.Ready)?.data
 

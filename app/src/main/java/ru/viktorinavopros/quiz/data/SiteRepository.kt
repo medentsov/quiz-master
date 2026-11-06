@@ -17,7 +17,7 @@ class SiteRepository(private val context: Context) {
         private const val BASE_URL = "https://viktorinavopros.ru/wp-json/wp/v2"
         private const val USER_AGENT =
             "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 " +
-                "(KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36 ViktorinaApp/1.0"
+                "(KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36 QuizMasterApp/1.0"
         private const val POSTS_FILE = "posts_cache.json"
         private const val CATEGORIES_FILE = "categories_cache.json"
         private const val META_FILE = "cache_meta.txt"

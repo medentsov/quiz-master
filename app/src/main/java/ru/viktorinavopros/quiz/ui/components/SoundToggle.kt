@@ -18,7 +18,7 @@ import ru.viktorinavopros.quiz.audio.AppSounds
 import ru.viktorinavopros.quiz.ui.theme.JeopardyGold
 import ru.viktorinavopros.quiz.ui.theme.JeopardyMuted
 
-/** Глобальный выключатель звука: дождь, реакции хомяка и голос. */
+/** Глобальный выключатель звука: эмбиент, тиканье, реакции хомяка и голос. */
 @Composable
 fun SoundToggle(modifier: Modifier = Modifier) {
     Surface(

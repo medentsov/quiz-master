@@ -30,8 +30,6 @@ class GameStateTest {
         topic = Topic.MIXED,
         value = value,
         question = question(id),
-        options = listOf("Верно", "Неверно", "Другое", "Ещё"),
-        correctIndex = 0,
     )
 
     private fun game(vararg cells: Pair<String, Int>) = GameState(
@@ -48,7 +46,7 @@ class GameStateTest {
     fun `correct answer adds value and rotates player`() {
         var state = game("c1" to 100, "c2" to 200)
         state = state.openCell("c1")
-        state = state.answer(0)
+        state = state.answer("ответ c1")
 
         assertEquals(100, state.players[0].score)
         assertEquals(1, state.players[0].correct)
@@ -63,7 +61,7 @@ class GameStateTest {
     @Test
     fun `wrong answer subtracts value`() {
         var state = game("c1" to 300)
-        state = state.openCell("c1").answer(1)
+        state = state.openCell("c1").answer("неверно")
 
         assertEquals(-300, state.players[0].score)
         assertEquals(0, state.players[0].correct)
@@ -74,11 +72,29 @@ class GameStateTest {
     fun `turn cycles through players`() {
         var state = game("c1" to 100, "c2" to 200)
 
-        state = state.openCell("c1").answer(0).continueAfterAnswer()
+        state = state.openCell("c1").answer("ответ c1").continueAfterAnswer()
         assertEquals(1, state.currentPlayerIndex)
 
-        state = state.openCell("c2").answer(0).continueAfterAnswer()
+        state = state.openCell("c2").answer("ответ c2").continueAfterAnswer()
         assertEquals(200, state.players[1].score)
         assertTrue(state.finished)
+    }
+
+    @Test
+    fun `timeout closes question as wrong`() {
+        val state = game("c1" to 300).openCell("c1").timeout()
+
+        assertEquals(-300, state.players[0].score)
+        assertEquals(1, state.players[0].wrong)
+        assertTrue(state.activeCell?.timedOut == true)
+        assertEquals(null, state.activeCell?.answerText)
+        assertEquals(1, state.history.size)
+        assertTrue(state.history.single().timedOut)
+    }
+
+    @Test
+    fun `blank answer is ignored`() {
+        val state = game("c1" to 100).openCell("c1")
+        assertEquals(state, state.answer("   "))
     }
 }

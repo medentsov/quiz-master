@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -23,6 +24,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
@@ -31,17 +34,20 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.VolumeOff
-import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -49,7 +55,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -87,7 +96,8 @@ import kotlinx.coroutines.delay
 fun BoardScreen(
     game: GameState,
     onOpenCell: (String) -> Unit,
-    onAnswer: (Int) -> Unit,
+    onAnswer: (String) -> Unit,
+    onTimeout: () -> Unit,
     onContinue: () -> Unit,
     onFinish: () -> Unit,
 ) {
@@ -212,6 +222,7 @@ fun BoardScreen(
                 game = game,
                 cell = cell,
                 onAnswer = onAnswer,
+                onTimeout = onTimeout,
                 onContinue = onContinue,
             )
         }
@@ -263,7 +274,7 @@ private fun BoardTopBar(
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "СВОЯ ИГРА",
+                text = "QUIZ MASTER",
                 style = MaterialTheme.typography.labelMedium,
                 color = JeopardyGold,
                 letterSpacing = 1.8.sp,
@@ -275,32 +286,6 @@ private fun BoardTopBar(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-        }
-        Spacer(Modifier.width(8.dp))
-        Surface(
-            onClick = { AppSounds.toggleRain() },
-            shape = CircleShape,
-            color = Color.White.copy(alpha = 0.07f),
-            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f)),
-        ) {
-            Box(
-                modifier = Modifier.size(42.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = if (AppSounds.rainEnabled) {
-                        Icons.Default.VolumeUp
-                    } else {
-                        Icons.Default.VolumeOff
-                    },
-                    contentDescription = if (AppSounds.rainEnabled) {
-                        "Выключить дождь"
-                    } else {
-                        "Включить дождь"
-                    },
-                    tint = if (AppSounds.rainEnabled) JeopardyGold else JeopardyMuted,
-                )
-            }
         }
         Spacer(Modifier.width(8.dp))
         Surface(
@@ -420,7 +405,8 @@ private fun QuestionCell(
 private fun QuestionDialog(
     game: GameState,
     cell: BoardCell,
-    onAnswer: (Int) -> Unit,
+    onAnswer: (String) -> Unit,
+    onTimeout: () -> Unit,
     onContinue: () -> Unit,
 ) {
     val answered = cell.answered
@@ -429,6 +415,37 @@ private fun QuestionDialog(
         ?: game.currentPlayer
     val scrollState = rememberScrollState()
     val reaction = remember { Animatable(0f) }
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+    val timerTotal = game.timerSeconds.coerceAtLeast(0)
+
+    var answerText by remember(cell.id) { mutableStateOf("") }
+    var secondsLeft by remember(cell.id, timerTotal) { mutableIntStateOf(timerTotal) }
+    var timerRunning by remember(cell.id, timerTotal) { mutableStateOf(false) }
+
+    fun submit() {
+        val clean = answerText.trim()
+        if (clean.isEmpty() || answered) return
+        keyboard?.hide()
+        focusManager.clearFocus()
+        onAnswer(clean)
+    }
+
+    // Таймер стартует только через 5 секунд: игрок успевает прочитать вопрос.
+    LaunchedEffect(cell.id, answered, timerTotal) {
+        if (answered || timerTotal <= 0) return@LaunchedEffect
+        secondsLeft = timerTotal
+        timerRunning = false
+        delay(5_000)
+        timerRunning = true
+        while (secondsLeft > 0) {
+            AppSounds.onTick()
+            delay(1_000)
+            secondsLeft--
+        }
+        timerRunning = false
+        onTimeout()
+    }
 
     // После ответа прокручиваем вниз, чтобы был виден правильный ответ.
     LaunchedEffect(answered) {
@@ -473,7 +490,8 @@ private fun QuestionDialog(
                 modifier = Modifier
                     .fillMaxSize()
                     .statusBarsPadding()
-                    .navigationBarsPadding(),
+                    .navigationBarsPadding()
+                    .imePadding(),
             ) {
                 Row(
                     modifier = Modifier
@@ -554,30 +572,88 @@ private fun QuestionDialog(
                         }
                     }
 
+                    if (timerTotal > 0 && !answered) {
+                        Spacer(Modifier.height(14.dp))
+                        TimerCard(
+                            secondsLeft = secondsLeft,
+                            total = timerTotal,
+                            running = timerRunning,
+                        )
+                    }
+
                     Spacer(Modifier.height(18.dp))
 
                     Text(
-                        text = if (answered) "Ваш ответ" else "Выберите вариант ответа",
+                        text = if (answered) "Ответ игрока" else "Введите ответ",
                         style = MaterialTheme.typography.labelLarge,
                         color = JeopardyMuted,
                     )
                     Spacer(Modifier.height(8.dp))
 
-                    cell.options.forEachIndexed { index, option ->
-                        OptionCard(
-                            index = index,
-                            text = option,
-                            answered = answered,
-                            selected = cell.selectedIndex == index,
-                            correct = index == cell.correctIndex,
-                            onClick = { onAnswer(index) },
-                        )
-                        Spacer(Modifier.height(8.dp))
-                    }
-
                     if (answered) {
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = if (cell.timedOut) {
+                                JeopardyRed.copy(alpha = 0.12f)
+                            } else {
+                                Color.White.copy(alpha = 0.06f)
+                            },
+                            border = BorderStroke(
+                                1.dp,
+                                if (cell.timedOut) {
+                                    JeopardyRed.copy(alpha = 0.45f)
+                                } else {
+                                    Color.White.copy(alpha = 0.12f)
+                                },
+                            ),
+                        ) {
+                            Text(
+                                text = cell.answerText
+                                    ?: if (cell.timedOut) "Время вышло" else "—",
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = Color.White,
+                            )
+                        }
                         Spacer(Modifier.height(10.dp))
                         AnswerFeedback(correctAnswer = cell.question.answer)
+                    } else {
+                        OutlinedTextField(
+                            value = answerText,
+                            onValueChange = { answerText = it.take(180) },
+                            modifier = Modifier.fillMaxWidth(),
+                            placeholder = {
+                                Text(
+                                    text = "Например: 24 марта 1984 года",
+                                    color = JeopardyMuted.copy(alpha = 0.7f),
+                                )
+                            },
+                            minLines = 1,
+                            maxLines = 3,
+                            shape = RoundedCornerShape(14.dp),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(onDone = { submit() }),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White,
+                                cursorColor = JeopardyGold,
+                                focusedBorderColor = JeopardyGold,
+                                unfocusedBorderColor = Color.White.copy(alpha = 0.2f),
+                                focusedContainerColor = Color.White.copy(alpha = 0.05f),
+                                unfocusedContainerColor = Color.White.copy(alpha = 0.03f),
+                            ),
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = "Регистр, порядок слов, падежи и небольшие опечатки не важны. " +
+                                "Можно ответить неполно.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = JeopardyMuted.copy(alpha = 0.75f),
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp,
+                        )
                     }
 
                     Spacer(Modifier.height(18.dp))
@@ -593,13 +669,16 @@ private fun QuestionDialog(
                             correct = cell.isCorrect == true,
                             progress = reaction.value,
                             value = cell.value,
+                            timedOut = cell.timedOut,
                         )
                         Spacer(Modifier.height(10.dp))
                     }
                     JeopardyButton(
-                        text = if (answered) "Продолжить" else "Сначала выберите ответ",
-                        onClick = onContinue,
-                        enabled = answered,
+                        text = if (answered) "Продолжить" else "Ответить",
+                        onClick = {
+                            if (answered) onContinue() else submit()
+                        },
+                        enabled = answered || answerText.isNotBlank(),
                     )
                 }
             }
@@ -608,85 +687,56 @@ private fun QuestionDialog(
 }
 
 @Composable
-private fun OptionCard(
-    index: Int,
-    text: String,
-    answered: Boolean,
-    selected: Boolean,
-    correct: Boolean,
-    onClick: () -> Unit,
+private fun TimerCard(
+    secondsLeft: Int,
+    total: Int,
+    running: Boolean,
 ) {
-    val showCorrect = answered && correct
-    val showWrong = answered && selected && !correct
-    val container = when {
-        showCorrect -> JeopardyGreenDark
-        showWrong -> JeopardyRedDark
-        answered -> Color.White.copy(alpha = 0.035f)
-        else -> JeopardyBlue.copy(alpha = 0.78f)
+    val warning = running && secondsLeft <= 5
+    val color = if (warning) JeopardyRed else JeopardyGold
+    val progress = if (running) {
+        (secondsLeft.toFloat() / total.coerceAtLeast(1)).coerceIn(0f, 1f)
+    } else {
+        1f
     }
-    val border = when {
-        showCorrect -> JeopardyGreen
-        showWrong -> JeopardyRed
-        answered -> Color.White.copy(alpha = 0.07f)
-        else -> Color.White.copy(alpha = 0.16f)
-    }
-    val letters = listOf("А", "Б", "В", "Г", "Д", "Е")
 
     Surface(
-        onClick = onClick,
-        enabled = !answered,
-        modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
-        color = container,
-        border = BorderStroke(if (showCorrect || showWrong) 1.5.dp else 1.dp, border),
+        color = color.copy(alpha = 0.08f),
+        border = BorderStroke(1.dp, color.copy(alpha = 0.32f)),
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 13.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = when {
-                    showCorrect -> JeopardyGreen.copy(alpha = 0.2f)
-                    showWrong -> JeopardyRed.copy(alpha = 0.2f)
-                    else -> JeopardyGold.copy(alpha = 0.15f)
-                },
-            ) {
-                Box(
-                    modifier = Modifier.size(30.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = letters.getOrElse(index) { "?" },
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Black,
-                        color = when {
-                            showCorrect -> JeopardyGreen
-                            showWrong -> JeopardyRed
-                            else -> JeopardyGold
-                        },
-                    )
-                }
-            }
-            Spacer(Modifier.width(12.dp))
-            Text(
-                text = text,
-                modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.bodyLarge,
-                color = if (answered && !showCorrect && !showWrong) {
-                    Color.White.copy(alpha = 0.45f)
-                } else {
-                    Color.White
-                },
-            )
-            if (showCorrect || showWrong) {
-                Spacer(Modifier.width(8.dp))
+        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    imageVector = if (showCorrect) Icons.Default.CheckCircle else Icons.Default.Cancel,
+                    imageVector = Icons.Default.Timer,
                     contentDescription = null,
-                    tint = if (showCorrect) JeopardyGreen else JeopardyRed,
+                    tint = color,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = if (running) {
+                        "Осталось $secondsLeft с"
+                    } else {
+                        "Таймер включится через 5 секунд"
+                    },
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = color,
+                )
+                Text(
+                    text = "${total} с",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = JeopardyMuted,
                 )
             }
+            Spacer(Modifier.height(8.dp))
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier.fillMaxWidth(),
+                color = color,
+                trackColor = Color.White.copy(alpha = 0.08f),
+            )
         }
     }
 }
@@ -720,6 +770,7 @@ private fun ReactionPanel(
     correct: Boolean,
     progress: Float,
     value: Int,
+    timedOut: Boolean,
 ) {
     val color = if (correct) JeopardyGreen else JeopardyRed
     Surface(
@@ -740,7 +791,11 @@ private fun ReactionPanel(
             Spacer(Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = if (correct) "Верно! Ням!" else "Ой! Разряд тока",
+                    text = when {
+                        correct -> "Верно! Ням!"
+                        timedOut -> "Время вышло!"
+                        else -> "Ой! Разряд тока"
+                    },
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Black,
                     color = color,
@@ -753,10 +808,10 @@ private fun ReactionPanel(
                     color = Color.White,
                 )
                 Text(
-                    text = if (correct) {
-                        "Орех отправлен в рот — хомяк доволен."
-                    } else {
-                        "Хомяк удивлён и потерял орех."
+                    text = when {
+                        correct -> "Орех отправлен в рот — хомяк доволен."
+                        timedOut -> "Хомяк не дождался ответа и потерял орех."
+                        else -> "Хомяк удивлён и потерял орех."
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = JeopardyMuted,

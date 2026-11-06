@@ -140,7 +140,7 @@ private val JeopardyShapes = Shapes(
 )
 
 @Composable
-fun ViktorinaTheme(content: @Composable () -> Unit) {
+fun QuizMasterTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = JeopardyColorScheme,
         typography = JeopardyTypography,

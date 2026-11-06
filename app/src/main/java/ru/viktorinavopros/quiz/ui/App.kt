@@ -32,7 +32,7 @@ import ru.viktorinavopros.quiz.ui.screens.IntroScreen
 import ru.viktorinavopros.quiz.ui.screens.ResultsScreen
 
 @Composable
-fun ViktorinaApp(viewModel: AppViewModel = viewModel()) {
+fun QuizMasterApp(viewModel: AppViewModel = viewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -63,9 +63,11 @@ fun ViktorinaApp(viewModel: AppViewModel = viewModel()) {
                     refreshing = state.refreshing,
                     playerCount = state.playerCount,
                     playerNames = state.playerNames,
+                    timerSeconds = state.timerSeconds,
                     lastUpdated = state.lastUpdated,
                     onPlayerCountChange = viewModel::setPlayerCount,
                     onPlayerNameChange = viewModel::setPlayerName,
+                    onTimerSecondsChange = viewModel::setTimerSeconds,
                     onStart = viewModel::goToCategories,
                     onRetry = viewModel::refresh,
                 )
@@ -87,6 +89,7 @@ fun ViktorinaApp(viewModel: AppViewModel = viewModel()) {
                             game = game,
                             onOpenCell = viewModel::openCell,
                             onAnswer = viewModel::answer,
+                            onTimeout = viewModel::timeout,
                             onContinue = viewModel::continueGame,
                             onFinish = viewModel::finishGame,
                         )

@@ -71,13 +71,3 @@ data class QuizData(
     val questionCount: Int get() = tests.sumOf { it.questions.size }
 }
 
-enum class AnswerMode {
-    MULTIPLE_CHOICE,
-    SELF_CHECK,
-}
-
-data class QuizSettings(
-    val answerMode: AnswerMode = AnswerMode.MULTIPLE_CHOICE,
-    val topicQuestionCount: Int = 10,
-    val shuffleQuestions: Boolean = true,
-)

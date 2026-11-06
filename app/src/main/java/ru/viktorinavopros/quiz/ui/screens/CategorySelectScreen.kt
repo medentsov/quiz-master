@@ -171,7 +171,7 @@ private fun CategoryTopBar(onBack: () -> Unit) {
         Spacer(Modifier.width(14.dp))
         Column {
             Text(
-                text = "СВОЯ ИГРА",
+                text = "QUIZ MASTER",
                 style = MaterialTheme.typography.labelMedium,
                 color = JeopardyGold,
                 letterSpacing = 1.5.sp,

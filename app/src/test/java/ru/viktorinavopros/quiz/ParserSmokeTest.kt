@@ -79,7 +79,7 @@ class ParserSmokeTest {
     }
 
     @Test
-    fun `builds board with four unique options`() {
+    fun `builds board without multiple choice options`() {
         val postsFile = File("/tmp/opencode/posts.json")
         if (!postsFile.exists()) return
 
@@ -93,15 +93,6 @@ class ParserSmokeTest {
         board.forEach { category ->
             assertEquals(5, category.cells.size)
             category.cells.forEach { cell ->
-                assertEquals(4, cell.options.size)
-                assertEquals(
-                    4,
-                    cell.options.map { GameFactory.normalize(it) }.distinct().size,
-                )
-                assertEquals(
-                    GameFactory.normalize(GameFactory.shortAnswer(cell.question.answer)),
-                    GameFactory.normalize(cell.options[cell.correctIndex]),
-                )
                 assertTrue(cell.question.text.isNotBlank())
                 assertTrue(cell.question.answer.isNotBlank())
             }

@@ -261,7 +261,7 @@ private fun ResultsTopBar(onClose: () -> Unit) {
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "СВОЯ ИГРА",
+                text = "QUIZ MASTER",
                 style = MaterialTheme.typography.labelMedium,
                 color = JeopardyGold,
                 letterSpacing = 1.8.sp,
@@ -623,7 +623,7 @@ private fun AnswerReviewCard(
                     text = if (answer.isCorrect) {
                         "· ваш ответ: ${answer.selectedAnswer ?: "—"} — верно"
                     } else {
-                        "· ваш ответ: ${answer.selectedAnswer ?: "—"} — неверно"
+                        "· ваш ответ: ${answer.selectedAnswer ?: "время вышло"} — неверно"
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = color,
@@ -636,7 +636,7 @@ private fun AnswerReviewCard(
             if (!answer.isCorrect) {
                 Spacer(Modifier.height(3.dp))
                 Text(
-                    text = "Правильный ответ: ${answer.correctOption}",
+                    text = "Правильный ответ: ${answer.correctAnswer}",
                     style = MaterialTheme.typography.bodyMedium,
                     color = JeopardyGreen,
                     fontSize = 12.sp,
@@ -651,30 +651,27 @@ private fun AnswerReviewCard(
                 Spacer(Modifier.height(12.dp))
 
                 Text(
-                    text = "ВАРИАНТЫ ОТВЕТА",
+                    text = "ОТВЕТЫ",
                     style = MaterialTheme.typography.labelMedium,
                     color = JeopardyGold,
                     letterSpacing = 1.sp,
                 )
                 Spacer(Modifier.height(8.dp))
-                if (answer.options.isNotEmpty()) {
-                    answer.options.forEachIndexed { index, option ->
-                        ReviewOptionRow(
-                            index = index,
-                            text = option,
-                            selected = answer.selectedIndex == index,
-                            correct = answer.correctIndex == index,
-                        )
-                        Spacer(Modifier.height(6.dp))
-                    }
-                } else {
-                    Text(
-                        text = "Ответ игрока: ${answer.selectedAnswer ?: "—"}\n" +
-                            "Правильный ответ: ${answer.correctOption}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = JeopardyMuted,
-                    )
-                }
+                AnswerLine(
+                    label = "Ответ игрока",
+                    text = if (answer.timedOut) {
+                        "Время вышло"
+                    } else {
+                        answer.selectedAnswer ?: "—"
+                    },
+                    color = if (answer.isCorrect) JeopardyGreen else JeopardyRed,
+                )
+                Spacer(Modifier.height(6.dp))
+                AnswerLine(
+                    label = "Правильный ответ",
+                    text = answer.correctAnswer,
+                    color = JeopardyGreen,
+                )
 
                 Spacer(Modifier.height(8.dp))
                 ExplanationBlock(answer)
@@ -703,71 +700,43 @@ private fun AnswerReviewCard(
 }
 
 @Composable
-private fun ReviewOptionRow(
-    index: Int,
+private fun AnswerLine(
+    label: String,
     text: String,
-    selected: Boolean,
-    correct: Boolean,
+    color: Color,
 ) {
-    val color = when {
-        correct -> JeopardyGreen
-        selected -> JeopardyRed
-        else -> JeopardyMuted
-    }
-    val letters = listOf("А", "Б", "В", "Г", "Д", "Е")
     Surface(
         shape = RoundedCornerShape(10.dp),
-        color = color.copy(alpha = if (correct || selected) 0.12f else 0.03f),
-        border = BorderStroke(
-            1.dp,
-            color.copy(alpha = if (correct || selected) 0.45f else 0.10f),
-        ),
+        color = color.copy(alpha = 0.08f),
+        border = BorderStroke(1.dp, color.copy(alpha = 0.3f)),
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .padding(horizontal = 12.dp, vertical = 9.dp),
         ) {
             Text(
-                text = letters.getOrElse(index) { "?" },
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Black,
-                color = color,
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = JeopardyMuted,
             )
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.height(3.dp))
             Text(
                 text = text,
-                modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodyMedium,
-                color = if (correct || selected) Color.White else JeopardyMuted,
+                color = Color.White,
             )
-            if (correct) {
-                Icon(
-                    imageVector = Icons.Default.CheckCircle,
-                    contentDescription = null,
-                    tint = JeopardyGreen,
-                    modifier = Modifier.size(17.dp),
-                )
-            } else if (selected) {
-                Icon(
-                    imageVector = Icons.Default.Cancel,
-                    contentDescription = null,
-                    tint = JeopardyRed,
-                    modifier = Modifier.size(17.dp),
-                )
-            }
         }
     }
 }
 
 @Composable
 private fun ExplanationBlock(answer: AnsweredQuestion) {
-    val why = if (answer.isCorrect) {
-        "Вы выбрали «${answer.selectedAnswer ?: "—"}» — это верный вариант."
-    } else {
-        "Вы выбрали «${answer.selectedAnswer ?: "—"}», а правильный вариант — " +
-            "«${answer.correctOption}»."
+    val why = when {
+        answer.isCorrect -> "Вы ответили «${answer.selectedAnswer ?: "—"}» — это верный ответ."
+        answer.timedOut -> "Время вышло. Правильный ответ — «${answer.correctAnswer}»."
+        else -> "Вы ответили «${answer.selectedAnswer ?: "—"}», а правильный ответ — " +
+            "«${answer.correctAnswer}»."
     }
 
     Surface(
@@ -791,7 +760,7 @@ private fun ExplanationBlock(answer: AnsweredQuestion) {
                 lineHeight = 19.sp,
             )
             if (answer.explanation.isNotBlank() &&
-                answer.explanation.trim() != answer.correctOption.trim()
+                answer.explanation.trim() != answer.correctAnswer.trim()
             ) {
                 Spacer(Modifier.height(8.dp))
                 Text(
