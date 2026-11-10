@@ -20,9 +20,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -32,7 +37,10 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -40,6 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import ru.viktorinavopros.quiz.audio.AnswerSound
 import ru.viktorinavopros.quiz.audio.AppSounds
 import ru.viktorinavopros.quiz.data.QuizData
 import ru.viktorinavopros.quiz.game.GameFactory
@@ -396,7 +405,7 @@ private fun SoundCard() {
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            text = "Спокойный монотонный эмбиент и ненавязчивое тиканье часов.",
+            text = "Бесшовный монотонный эмбиент, тиканье часов и звуки реакций на ответ.",
             style = MaterialTheme.typography.bodyMedium,
             color = JeopardyMuted,
             fontSize = 12.sp,
@@ -405,7 +414,7 @@ private fun SoundCard() {
         Spacer(Modifier.height(10.dp))
         SoundRow(
             title = "Звук приложения",
-            subtitle = "Реакции хомяка и тиканье таймера",
+            subtitle = "Реакции на ответ и тиканье таймера",
             checked = !AppSounds.muted,
             onCheckedChange = { AppSounds.toggleMute() },
         )
@@ -415,10 +424,96 @@ private fun SoundCard() {
         )
         SoundRow(
             title = "Фоновый эмбиент",
-            subtitle = "Тихий спокойный фон во время игры",
+            subtitle = "Тихий спокойный фон без пауз между повторами",
             checked = AppSounds.ambientEnabled && !AppSounds.muted,
             onCheckedChange = { AppSounds.changeAmbient(it) },
         )
+        HorizontalDivider(
+            modifier = Modifier.padding(vertical = 12.dp),
+            color = Color.White.copy(alpha = 0.08f),
+        )
+        SoundPicker(
+            title = "Звук верного ответа",
+            sounds = AppSounds.correctSounds,
+            selected = AppSounds.correctSound,
+            onSelect = AppSounds::selectCorrectSound,
+        )
+        Spacer(Modifier.height(12.dp))
+        SoundPicker(
+            title = "Звук неверного ответа",
+            sounds = AppSounds.wrongSounds,
+            selected = AppSounds.wrongSound,
+            onSelect = AppSounds::selectWrongSound,
+        )
+    }
+}
+
+@Composable
+private fun SoundPicker(
+    title: String,
+    sounds: List<AnswerSound>,
+    selected: AnswerSound,
+    onSelect: (AnswerSound) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelLarge,
+            color = JeopardyMuted,
+        )
+        Spacer(Modifier.height(6.dp))
+        Box(modifier = Modifier.fillMaxWidth()) {
+            Surface(
+                onClick = { expanded = true },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                color = Color.White.copy(alpha = 0.05f),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = selected.label,
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Color.White,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Icon(
+                        imageVector = Icons.Default.ArrowDropDown,
+                        contentDescription = null,
+                        tint = JeopardyGold,
+                    )
+                }
+            }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+            ) {
+                sounds.forEach { sound ->
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = sound.label,
+                                color = if (sound.id == selected.id) {
+                                    JeopardyGold
+                                } else {
+                                    Color.White
+                                },
+                            )
+                        },
+                        onClick = {
+                            expanded = false
+                            onSelect(sound)
+                        },
+                    )
+                }
+            }
+        }
     }
 }
 
