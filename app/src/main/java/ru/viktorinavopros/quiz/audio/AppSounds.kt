@@ -1,19 +1,26 @@
 package ru.viktorinavopros.quiz.audio
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.media.SoundPool
-import android.speech.tts.TextToSpeech
+import androidx.annotation.RawRes
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import ru.viktorinavopros.quiz.R
-import java.util.Locale
+
+/** Вариант звука реакции на ответ. Название берётся из имени исходного файла. */
+data class AnswerSound(
+    val id: String,
+    val label: String,
+    @param:RawRes val resId: Int,
+)
 
 /**
- * Звуковое оформление: спокойный фоновый эмбиент, тиканье таймера,
- * короткие реакции хомяка и голос.
+ * Звуковое оформление: бесшовный фоновый эмбиент, тиканье таймера
+ * и выбранные игроком звуки верного и неверного ответа.
  * Живёт столько же, сколько процесс приложения.
  */
 object AppSounds {
@@ -22,17 +29,31 @@ object AppSounds {
     private const val KEY_MUTED = "muted"
     private const val KEY_AMBIENT = "ambient_enabled"
     private const val KEY_AMBIENT_LEGACY = "rain_enabled"
+    private const val KEY_CORRECT_SOUND = "correct_sound"
+    private const val KEY_WRONG_SOUND = "wrong_sound"
 
-    private var ambientPlayer: MediaPlayer? = null
+    val correctSounds = listOf(
+        AnswerSound("lucky", "О счастливчик", R.raw.correct_lucky),
+        AnswerSound("hundred", "Сто к одному", R.raw.correct_hundred),
+        AnswerSound("field", "Поле чудес", R.raw.correct_field),
+    )
+
+    val wrongSounds = listOf(
+        AnswerSound("hundred", "Сто к одному", R.raw.wrong_hundred),
+        AnswerSound("basin", "Тазик", R.raw.wrong_basin),
+        AnswerSound("sigh", "Да блин, нууу...", R.raw.wrong_sigh),
+    )
+
+    private var appContext: Context? = null
+    private var ambient: AmbientLoop? = null
+    private var correctPlayer: MediaPlayer? = null
+    private var wrongPlayer: MediaPlayer? = null
     private var soundPool: SoundPool? = null
-    private var crowdId = 0
-    private var chimeId = 0
     private var tickId = 0
-    private var tts: TextToSpeech? = null
-    private var ttsReady = false
-    private var prefs: android.content.SharedPreferences? = null
+    private var prefs: SharedPreferences? = null
+    private var initialized = false
 
-    /** Общий выключатель: эмбиент, тиканье, реакции и голос. */
+    /** Общий выключатель: эмбиент, тиканье и звуки ответов. */
     var muted by mutableStateOf(false)
         private set
 
@@ -40,9 +61,20 @@ object AppSounds {
     var ambientEnabled by mutableStateOf(false)
         private set
 
+    /** Выбранный звук верного ответа. */
+    var correctSound by mutableStateOf(correctSounds.first())
+        private set
+
+    /** Выбранный звук неверного ответа. */
+    var wrongSound by mutableStateOf(wrongSounds.first())
+        private set
+
     fun init(context: Context) {
-        if (ambientPlayer != null || soundPool != null) return
+        if (initialized) return
+        initialized = true
+
         val app = context.applicationContext
+        appContext = app
         val store = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         prefs = store
         muted = store.getBoolean(KEY_MUTED, false)
@@ -50,9 +82,15 @@ object AppSounds {
             KEY_AMBIENT,
             store.getBoolean(KEY_AMBIENT_LEGACY, false),
         )
+        correctSound = correctSounds.firstOrNull {
+            it.id == store.getString(KEY_CORRECT_SOUND, null)
+        } ?: correctSounds.first()
+        wrongSound = wrongSounds.firstOrNull {
+            it.id == store.getString(KEY_WRONG_SOUND, null)
+        } ?: wrongSounds.first()
 
         soundPool = SoundPool.Builder()
-            .setMaxStreams(4)
+            .setMaxStreams(2)
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_GAME)
@@ -60,33 +98,11 @@ object AppSounds {
                     .build(),
             )
             .build()
-            .also { pool ->
-                crowdId = pool.load(app, R.raw.wrong_crowd, 1)
-                chimeId = pool.load(app, R.raw.correct_chime, 1)
-                tickId = pool.load(app, R.raw.clock_tick, 1)
-            }
+            .also { pool -> tickId = pool.load(app, R.raw.clock_tick, 1) }
 
-        ambientPlayer = runCatching {
-            MediaPlayer.create(app, R.raw.ambient_loop)?.apply {
-                isLooping = true
-                setVolume(0.22f, 0.22f)
-                if (!muted && ambientEnabled) start()
-            }
-        }.getOrNull()
-
-        tts = runCatching {
-            TextToSpeech(app) { status ->
-                if (status == TextToSpeech.SUCCESS) {
-                    runCatching {
-                        val result = tts?.setLanguage(Locale("ru", "RU"))
-                        ttsReady = result != TextToSpeech.LANG_MISSING_DATA &&
-                            result != TextToSpeech.LANG_NOT_SUPPORTED
-                        tts?.setPitch(1.28f)
-                        tts?.setSpeechRate(0.96f)
-                    }
-                }
-            }
-        }.getOrNull()
+        prepareAnswerPlayers()
+        ambient = AmbientLoop(app, R.raw.ambient_loop)
+        if (!muted && ambientEnabled) ambient?.start()
     }
 
     /** Включает или выключает весь звук приложения. */
@@ -94,10 +110,9 @@ object AppSounds {
         muted = !muted
         prefs?.edit()?.putBoolean(KEY_MUTED, muted)?.apply()
         if (muted) {
-            runCatching {
-                if (ambientPlayer?.isPlaying == true) ambientPlayer?.pause()
-                tts?.stop()
-            }
+            ambient?.pause()
+            pauseEffect(correctPlayer)
+            pauseEffect(wrongPlayer)
         } else {
             applyAmbient()
         }
@@ -113,14 +128,49 @@ object AppSounds {
         applyAmbient()
     }
 
+    fun selectCorrectSound(sound: AnswerSound) {
+        if (sound.id == correctSound.id) return
+        correctSound = sound
+        prefs?.edit()?.putString(KEY_CORRECT_SOUND, sound.id)?.apply()
+        prepareAnswerPlayers()
+    }
+
+    fun selectWrongSound(sound: AnswerSound) {
+        if (sound.id == wrongSound.id) return
+        wrongSound = sound
+        prefs?.edit()?.putString(KEY_WRONG_SOUND, sound.id)?.apply()
+        prepareAnswerPlayers()
+    }
+
     private fun applyAmbient() {
-        val player = ambientPlayer ?: return
+        if (ambientEnabled && !muted) ambient?.start() else ambient?.pause()
+    }
+
+    private fun prepareAnswerPlayers() {
+        val context = appContext ?: return
+        correctPlayer?.release()
+        wrongPlayer?.release()
+        correctPlayer = createEffect(context, correctSound.resId)
+        wrongPlayer = createEffect(context, wrongSound.resId)
+    }
+
+    private fun createEffect(context: Context, @RawRes resId: Int): MediaPlayer? =
         runCatching {
-            if (ambientEnabled && !muted) {
-                if (!player.isPlaying) player.start()
-            } else {
-                if (player.isPlaying) player.pause()
-            }
+            MediaPlayer.create(context, resId)?.apply { setVolume(1f, 1f) }
+        }.getOrNull()
+
+    private fun pauseEffect(player: MediaPlayer?) {
+        runCatching { if (player?.isPlaying == true) player.pause() }
+    }
+
+    private fun playEffect(player: MediaPlayer?, other: MediaPlayer?) {
+        if (muted) return
+        runCatching {
+            pauseEffect(other)
+            player ?: return
+            if (player.isPlaying) player.pause()
+            player.seekTo(0)
+            player.start()
         }
     }
 
@@ -131,31 +181,109 @@ object AppSounds {
     }
 
     fun onCorrect() {
-        if (muted) return
-        soundPool?.play(chimeId, 0.75f, 0.75f, 1, 0, 1f)
-        speak("Ну да!")
+        playEffect(correctPlayer, wrongPlayer)
     }
 
     fun onWrong() {
-        if (muted) return
-        soundPool?.play(crowdId, 0.85f, 0.85f, 1, 0, 1f)
-        speak("А ну да?")
-    }
-
-    private fun speak(text: String) {
-        if (muted || !ttsReady) return
-        runCatching {
-            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "hamster")
-        }
+        playEffect(wrongPlayer, correctPlayer)
     }
 
     fun release() {
-        runCatching { ambientPlayer?.release() }
-        ambientPlayer = null
-        runCatching { soundPool?.release() }
+        ambient?.release()
+        ambient = null
+        correctPlayer?.release()
+        correctPlayer = null
+        wrongPlayer?.release()
+        wrongPlayer = null
+        soundPool?.release()
         soundPool = null
-        runCatching { tts?.shutdown() }
-        tts = null
-        ttsReady = false
+        appContext = null
+        initialized = false
+    }
+}
+
+/**
+ * Бесшовный цикл из двух MediaPlayer: пока играет один, второй уже подготовлен
+ * и назначен следующим. Переход происходит без паузы между повторами.
+ */
+private class AmbientLoop(context: Context, @RawRes resId: Int) {
+
+    private var first: MediaPlayer? = null
+    private var second: MediaPlayer? = null
+    private var active: MediaPlayer? = null
+    private var standby: MediaPlayer? = null
+
+    init {
+        val attributes = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_GAME)
+            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+            .build()
+
+        first = create(context, resId, attributes, 0)
+        val sessionId = first?.audioSessionId ?: 0
+        second = create(context, resId, attributes, sessionId)
+        active = first
+        standby = second
+
+        first?.setOnCompletionListener { player ->
+            second?.let { onCompleted(player, it) }
+        }
+        second?.setOnCompletionListener { player ->
+            first?.let { onCompleted(player, it) }
+        }
+
+        runCatching {
+            val current = first ?: return@runCatching
+            val next = second ?: return@runCatching
+            current.setNextMediaPlayer(next)
+        }
+    }
+
+    private fun create(
+        context: Context,
+        @RawRes resId: Int,
+        attributes: AudioAttributes,
+        sessionId: Int,
+    ): MediaPlayer? = runCatching {
+        MediaPlayer.create(context, resId, attributes, sessionId)?.apply {
+            setVolume(VOLUME, VOLUME)
+        }
+    }.getOrNull()
+
+    private fun onCompleted(finished: MediaPlayer, next: MediaPlayer) {
+        active = next
+        standby = finished
+        runCatching {
+            finished.seekTo(0)
+            next.setNextMediaPlayer(finished)
+        }
+    }
+
+    fun start() {
+        val current = active ?: return
+        val next = standby ?: return
+        runCatching {
+            if (!current.isPlaying) {
+                current.setNextMediaPlayer(next)
+                current.start()
+            }
+        }
+    }
+
+    fun pause() {
+        runCatching { if (active?.isPlaying == true) active?.pause() }
+    }
+
+    fun release() {
+        runCatching { first?.release() }
+        runCatching { second?.release() }
+        first = null
+        second = null
+        active = null
+        standby = null
+    }
+
+    private companion object {
+        const val VOLUME = 0.22f
     }
 }
